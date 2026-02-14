@@ -1,154 +1,1532 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CamCtrl</title>
-  <link rel="stylesheet" href="css/style.css">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<title>CamCtrl — Security Monitor</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#000;overflow:hidden;user-select:none;-webkit-user-select:none;font-family:'Courier New',monospace;color:#e6edf3}
+  canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+  #wrap{position:fixed;inset:0;display:grid;place-items:center;background:#000}
+
+  /* ====== HEAVY CRT EFFECTS (from Dink City) ====== */
+  #crt-container{position:relative;border-radius:18px;overflow:hidden;box-shadow:0 0 60px rgba(51,255,102,0.15), 0 0 120px rgba(51,255,102,0.05), inset 0 0 1px rgba(255,255,255,0.1)}
+
+  /* Scanlines */
+  #scanlines{position:absolute;inset:0;pointer-events:none;z-index:10;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 1px,rgba(0,0,0,0.3) 1px,rgba(0,0,0,0.3) 2px);
+    mix-blend-mode:multiply}
+
+  /* RGB sub-pixel pattern */
+  #rgb-grid{position:absolute;inset:0;pointer-events:none;z-index:11;opacity:0.04;
+    background:repeating-linear-gradient(90deg,rgba(255,0,0,1) 0px,rgba(255,0,0,1) 1px,rgba(0,255,0,1) 1px,rgba(0,255,0,1) 2px,rgba(0,0,255,1) 2px,rgba(0,0,255,1) 3px);
+    background-size:3px 1px}
+
+  /* Vignette + CRT curvature glow */
+  #crt-glow{position:absolute;inset:0;pointer-events:none;z-index:12;
+    box-shadow:inset 0 0 100px rgba(0,0,0,0.7),inset 0 0 200px rgba(0,0,0,0.4),inset 0 0 300px rgba(0,0,0,0.2);
+    border-radius:18px}
+
+  /* Phosphor bloom layer */
+  #phosphor-canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:9;opacity:0.12;filter:blur(4px)}
+
+  /* Flicker overlay */
+  #flicker{position:absolute;inset:0;pointer-events:none;z-index:13;opacity:0;background:rgba(150,255,180,0.03);animation:crt-flicker 0.15s infinite}
+  @keyframes crt-flicker{0%{opacity:0}5%{opacity:1}10%{opacity:0}15%{opacity:0.5}20%{opacity:0}100%{opacity:0}}
+
+  /* Turn-on animation */
+  #crt-container{animation:crt-on 0.8s ease-out}
+  @keyframes crt-on{
+    0%{filter:brightness(30) saturate(0);transform:scaleY(0.005) scaleX(0.8)}
+    40%{filter:brightness(5) saturate(0.5);transform:scaleY(0.9) scaleX(1)}
+    70%{filter:brightness(1.5) saturate(1);transform:scaleY(1.02) scaleX(1)}
+    100%{filter:brightness(1) saturate(1);transform:scaleY(1) scaleX(1)}
+  }
+
+  /* Slight curvature illusion */
+  #crt-container::before{content:'';position:absolute;inset:-2px;border-radius:20px;
+    background:linear-gradient(135deg,rgba(255,255,255,0.06),transparent 40%,transparent 60%,rgba(255,255,255,0.03));
+    z-index:14;pointer-events:none}
+
+  /* Ambient room glow */
+  #wrap::before{content:'';position:fixed;inset:0;pointer-events:none;
+    background:radial-gradient(ellipse at 50% 45%,rgba(51,255,102,0.06) 0%,transparent 60%);z-index:0}
+
+  #crt-container{cursor:crosshair}
+</style>
 </head>
 <body>
-  <div id="screen">
-    <div id="crt-overlay"></div>
-
-    <!-- TITLE SCREEN -->
-    <div id="title-screen" class="screen-layer active">
-      <div class="title-logo">
-        <pre>
- ██████╗ █████╗ ███╗   ███╗ ██████╗████████╗██████╗ ██╗
-██╔════╝██╔══██╗████╗ ████║██╔════╝╚══██╔══╝██╔══██╗██║
-██║     ███████║██╔████╔██║██║        ██║   ██████╔╝██║
-██║     ██╔══██║██║╚██╔╝██║██║        ██║   ██╔══██╗██║
-╚██████╗██║  ██║██║ ╚═╝ ██║╚██████╗   ██║   ██║  ██║███████╗
- ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝
-        </pre>
-        <p class="subtitle">SECURITY MONITORING SYSTEM v2.7</p>
-      </div>
-      <div class="menu-options">
-        <button id="btn-new-game" class="menu-btn">NEW SHIFT</button>
-        <button id="btn-how-to" class="menu-btn">HOW TO PLAY</button>
-      </div>
-    </div>
-
-    <!-- HOW TO PLAY -->
-    <div id="howto-screen" class="screen-layer">
-      <div class="howto-content">
-        <h2>// OPERATOR MANUAL</h2>
-        <div class="howto-text">
-          <p><strong>MISSION:</strong> Protect the jewel in the vault. Thieves will infiltrate the building each shift. Don't let them reach it.</p>
-          <p><strong>CAMERAS:</strong> Click a camera feed to select it. Click a room on the map to reposition that camera. You can only see rooms your cameras cover.</p>
-          <p><strong>ACTIONS</strong> (cost Action Points):</p>
-          <ul>
-            <li><strong>LOCK DOOR</strong> (1 AP) - Click a door on the map to lock it. Thieves must pick locked doors (takes them several turns).</li>
-            <li><strong>ALARM</strong> (2 AP) - Trigger alarm in a visible room. Slows all thieves in that room. 5-turn cooldown.</li>
-            <li><strong>PAUSE</strong> (Space) - Pause the ticker to plan your moves.</li>
-          </ul>
-          <p><strong>UPGRADES:</strong> After each shift, pick an upgrade card to improve your security system.</p>
-          <p><strong>SURVIVE 5 SHIFTS</strong> to complete the run.</p>
-        </div>
-        <button id="btn-back-title" class="menu-btn">BACK</button>
-      </div>
-    </div>
-
-    <!-- GAME SCREEN -->
-    <div id="game-screen" class="screen-layer">
-      <div id="game-layout">
-        <div id="camera-panel">
-          <div class="camera-feed" id="cam-0">
-            <div class="cam-label">CAM 01</div>
-            <canvas class="cam-canvas" width="240" height="180"></canvas>
-            <div class="cam-static"></div>
-          </div>
-          <div class="camera-feed" id="cam-1">
-            <div class="cam-label">CAM 02</div>
-            <canvas class="cam-canvas" width="240" height="180"></canvas>
-            <div class="cam-static"></div>
-          </div>
-          <div class="camera-feed" id="cam-2">
-            <div class="cam-label">CAM 03</div>
-            <canvas class="cam-canvas" width="240" height="180"></canvas>
-            <div class="cam-static"></div>
-          </div>
-          <div class="camera-feed" id="cam-3">
-            <div class="cam-label">CAM 04</div>
-            <canvas class="cam-canvas" width="240" height="180"></canvas>
-            <div class="cam-static"></div>
-          </div>
-        </div>
-        <div id="map-panel">
-          <div class="panel-header">FLOOR PLAN</div>
-          <canvas id="map-canvas" width="480" height="400"></canvas>
-        </div>
-        <div id="hud-panel">
-          <div class="hud-section">
-            <div class="hud-label">SHIFT</div>
-            <div class="hud-value" id="hud-shift">1 / 5</div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-label">TURN</div>
-            <div class="hud-value" id="hud-turn">0</div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-label">ACTION PTS</div>
-            <div class="hud-value" id="hud-ap">3 / 3</div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-label">ALARM CD</div>
-            <div class="hud-value" id="hud-alarm">READY</div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-label">THIEVES</div>
-            <div class="hud-value" id="hud-thieves">0</div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-label">STATUS</div>
-            <div class="hud-value" id="hud-status">SECURE</div>
-          </div>
-          <div class="hud-actions">
-            <button id="btn-lock" class="action-btn" title="Lock Door (1 AP)">LOCK DOOR</button>
-            <button id="btn-alarm" class="action-btn" title="Alarm (2 AP)">ALARM</button>
-            <button id="btn-pause" class="action-btn">PAUSE</button>
-          </div>
-          <div id="event-log">
-            <div class="panel-header">EVENT LOG</div>
-            <div id="log-entries"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- UPGRADE SCREEN -->
-    <div id="upgrade-screen" class="screen-layer">
-      <h2 class="upgrade-title">// SHIFT COMPLETE - SYSTEM UPGRADE AVAILABLE</h2>
-      <p class="upgrade-subtitle">Select one upgrade for your security system:</p>
-      <div id="upgrade-cards"></div>
-    </div>
-
-    <!-- NARRATIVE SCREEN -->
-    <div id="narrative-screen" class="screen-layer">
-      <div id="narrative-container">
-        <div class="narrative-header">INCOMING MESSAGE</div>
-        <div id="narrative-sender"></div>
-        <div id="narrative-text"></div>
-        <div id="narrative-choices"></div>
-      </div>
-    </div>
-
-    <!-- GAME OVER SCREEN -->
-    <div id="gameover-screen" class="screen-layer">
-      <div id="gameover-content">
-        <h2 id="gameover-title"></h2>
-        <p id="gameover-text"></p>
-        <div id="gameover-stats"></div>
-        <button id="btn-restart" class="menu-btn">NEW SHIFT</button>
-      </div>
-    </div>
+<div id="wrap">
+  <div id="crt-container">
+    <canvas id="c"></canvas>
+    <canvas id="phosphor-canvas"></canvas>
+    <div id="scanlines"></div>
+    <div id="rgb-grid"></div>
+    <div id="crt-glow"></div>
+    <div id="flicker"></div>
   </div>
+</div>
+<script>
+// ============================================================
+//  CAMCTRL — Security Camera Roguelike
+// ============================================================
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const phosphorCanvas = document.getElementById('phosphor-canvas');
+const phosphorCtx = phosphorCanvas.getContext('2d');
 
-  <script src="js/map.js"></script>
-  <script src="js/entities.js"></script>
-  <script src="js/renderer.js"></script>
-  <script src="js/upgrades.js"></script>
-  <script src="js/narrative.js"></script>
-  <script src="js/main.js"></script>
+// --- Responsive sizing ---
+let W=900, H=600, SCALE;
+function resize(){
+  const aspect=W/H;
+  let cw=window.innerWidth*0.96, ch=window.innerHeight*0.94;
+  if(cw/ch>aspect){cw=ch*aspect;}else{ch=cw/aspect;}
+  canvas.style.width=cw+'px'; canvas.style.height=ch+'px';
+  canvas.width=W; canvas.height=H;
+  phosphorCanvas.width=W; phosphorCanvas.height=H;
+  const container=document.getElementById('crt-container');
+  container.style.width=cw+'px'; container.style.height=ch+'px';
+  SCALE=cw/W;
+}
+window.addEventListener('resize',resize); resize();
+
+// --- Colors ---
+const COL={
+  bg:'#080c08', floor:'#0e1a0e', floorAlt:'#0c160c',
+  wall:'#1a2e1a', wallTop:'#244024', wallEdge:'#0d1a0d',
+  door:'#336633', doorLocked:'#cc6600', doorFrame:'#1a3d1a',
+  vault:'#33ff66', vaultGlow:'rgba(51,255,102,0.2)',
+  cam:'#33ff66', camDim:'#1a8033',
+  cone:'rgba(51,255,102,0.07)', coneEdge:'rgba(51,255,102,0.15)',
+  coneBright:'rgba(51,255,102,0.14)',
+  thief:'#ff4444', thiefFast:'#ff8800', thiefPick:'#ffaa44',
+  thiefGhost:'#8844ff', thiefHeavy:'#ff2222',
+  spotlight:'rgba(255,220,100,0.18)', spotEdge:'rgba(255,220,100,0.3)',
+  dronePing:'rgba(100,200,255,0.12)',
+  green:'#33ff66', greenDim:'#1a8033', greenDark:'#0d4020',
+  amber:'#ffaa00', red:'#ff3333', text:'#33ff66', textDim:'#1a8033',
+  panel:'rgba(8,12,8,0.92)', panelBorder:'#1a3d1a',
+  hudBg:'rgba(8,12,8,0.85)',
+};
+
+// ============================================================
+//  ISOMETRIC HELPERS
+// ============================================================
+// We use a slight pseudo-isometric: top-down with Y squashed
+const ISO_SCALE=1.0;
+const ISO_SQUASH=0.58; // Y compression for isometric feel
+const TILE=20; // base tile size in world coords
+// Map offset to center the building on screen
+let MAP_OX=0, MAP_OY=0;
+
+function toScreen(wx,wy){
+  return {
+    x: MAP_OX + wx*ISO_SCALE,
+    y: MAP_OY + wy*ISO_SCALE*ISO_SQUASH,
+  };
+}
+function toWorld(sx,sy){
+  return {
+    x: (sx-MAP_OX)/ISO_SCALE,
+    y: (sy-MAP_OY)/(ISO_SCALE*ISO_SQUASH),
+  };
+}
+
+// ============================================================
+//  MAP GENERATION
+// ============================================================
+const GRID_W=36, GRID_H=28;
+let grid=[]; // 0=wall, 1=floor, 2=door, 3=vault, 4=entry, 5=corridor
+let rooms=[], doors=[], entries=[];
+
+function generateMap(shiftNum){
+  grid=Array.from({length:GRID_H},()=>Array(GRID_W).fill(0));
+  rooms=[]; doors=[]; entries=[];
+
+  // Fixed-ish layout with some variation per shift
+  const layouts=[
+    // Layout for various shifts — rooms are {x,y,w,h,name,type}
+    [
+      {x:3,y:2,w:8,h:6,name:'Lobby',type:'normal'},
+      {x:14,y:2,w:7,h:5,name:'Office A',type:'normal'},
+      {x:24,y:2,w:8,h:6,name:'Office B',type:'normal'},
+      {x:3,y:11,w:7,h:7,name:'Storage',type:'normal'},
+      {x:13,y:10,w:10,h:8,name:'VAULT',type:'vault'},
+      {x:26,y:11,w:7,h:7,name:'Server Rm',type:'normal'},
+      {x:3,y:21,w:8,h:5,name:'Break Rm',type:'normal'},
+      {x:14,y:21,w:7,h:5,name:'Utility',type:'normal'},
+      {x:24,y:21,w:9,h:5,name:'Loading',type:'normal'},
+    ],
+    [
+      {x:2,y:2,w:10,h:5,name:'Reception',type:'normal'},
+      {x:15,y:1,w:8,h:6,name:'Lab A',type:'normal'},
+      {x:26,y:2,w:8,h:5,name:'Lab B',type:'normal'},
+      {x:2,y:10,w:8,h:8,name:'Archive',type:'normal'},
+      {x:13,y:10,w:10,h:8,name:'VAULT',type:'vault'},
+      {x:26,y:10,w:8,h:8,name:'Comms',type:'normal'},
+      {x:2,y:21,w:9,h:5,name:'Garage',type:'normal'},
+      {x:14,y:21,w:8,h:5,name:'Armory',type:'normal'},
+      {x:25,y:21,w:9,h:5,name:'Exit Bay',type:'normal'},
+    ],
+  ];
+
+  const layout=layouts[shiftNum%layouts.length];
+
+  // Carve rooms
+  for(let i=0;i<layout.length;i++){
+    const def=layout[i];
+    const room={...def, id:i};
+    rooms.push(room);
+    for(let dy=0;dy<room.h;dy++){
+      for(let dx=0;dx<room.w;dx++){
+        const gx=room.x+dx, gy=room.y+dy;
+        if(gx<GRID_W&&gy<GRID_H) grid[gy][gx]=1;
+      }
+    }
+  }
+
+  // Vault marker
+  const vault=rooms.find(r=>r.type==='vault');
+  if(vault){
+    const vx=Math.floor(vault.x+vault.w/2);
+    const vy=Math.floor(vault.y+vault.h/2);
+    grid[vy][vx]=3;
+  }
+
+  // Connect rooms with corridors + doors
+  const connections=[
+    [0,1],[1,2],[0,3],[3,4],[4,5],[2,5],
+    [3,6],[4,7],[5,8],[6,7],[7,8],[1,4],
+  ];
+  for(const [a,b] of connections){
+    carveCorridor(rooms[a],rooms[b]);
+  }
+
+  // Entries (edges of outer rooms)
+  const entryRoomIds=[0,2,6,8];
+  const numEntries=Math.min(2+Math.floor(shiftNum/2), entryRoomIds.length);
+  for(let i=0;i<numEntries;i++){
+    const r=rooms[entryRoomIds[i]];
+    const ex=r.x+(i%2===0?0:r.w-1);
+    const ey=r.y+Math.floor(r.h/2);
+    grid[ey][ex]=4;
+    entries.push({x:ex,y:ey,roomId:r.id});
+  }
+
+  // Center map on screen
+  MAP_OX=W/2-(GRID_W*TILE)/2;
+  MAP_OY=55+(H-55)/2-(GRID_H*TILE*ISO_SQUASH)/2;
+}
+
+function carveCorridor(rA,rB){
+  const ax=Math.floor(rA.x+rA.w/2), ay=Math.floor(rA.y+rA.h/2);
+  const bx=Math.floor(rB.x+rB.w/2), by=Math.floor(rB.y+rB.h/2);
+
+  // Horizontal
+  const xMin=Math.min(ax,bx), xMax=Math.max(ax,bx);
+  for(let x=xMin;x<=xMax;x++){
+    if(by>=0&&by<GRID_H&&x>=0&&x<GRID_W){
+      if(grid[by][x]===0) grid[by][x]=5;
+    }
+  }
+  // Vertical
+  const yMin=Math.min(ay,by), yMax=Math.max(ay,by);
+  for(let y=yMin;y<=yMax;y++){
+    if(y>=0&&y<GRID_H&&ax>=0&&ax<GRID_W){
+      if(grid[y][ax]===0) grid[y][ax]=5;
+    }
+  }
+
+  // Place door at corridor-room boundary
+  let doorPlaced=false;
+  for(let y=yMin;y<=yMax&&!doorPlaced;y++){
+    if(y>0&&y<GRID_H-1&&ax>0&&ax<GRID_W-1){
+      if((grid[y-1][ax]===0&&grid[y+1][ax]===0)){
+        grid[y][ax]=2;
+        doors.push({x:ax,y:y,locked:false,lockTimer:0,hp:3,breaking:false});
+        doorPlaced=true;
+      }
+    }
+  }
+  if(!doorPlaced){
+    for(let x=xMin;x<=xMax&&!doorPlaced;x++){
+      if(by>0&&by<GRID_H-1&&x>0&&x<GRID_W-1){
+        if((grid[by][x-1]===0&&grid[by][x+1]===0)){
+          grid[by][x]=2;
+          doors.push({x:x,y:by,locked:false,lockTimer:0,hp:3,breaking:false});
+          doorPlaced=true;
+        }
+      }
+    }
+  }
+}
+
+function getRoomAt(wx,wy){
+  for(const r of rooms){
+    if(wx>=r.x&&wx<r.x+r.w&&wy>=r.y&&wy<r.y+r.h) return r;
+  }
+  return null;
+}
+
+// ============================================================
+//  CAMERAS & VISION CONES
+// ============================================================
+let cameras=[];
+
+function initCameras(){
+  cameras=[];
+  // Place cameras in some rooms, facing various directions
+  const camDefs=[
+    {roomIdx:0, offX:0.5, offY:0.2, angle:Math.PI*0.75, fov:Math.PI/2.5},
+    {roomIdx:4, offX:0.2, offY:0.2, angle:Math.PI*0.6, fov:Math.PI/2.2},
+    {roomIdx:4, offX:0.8, offY:0.8, angle:-Math.PI*0.4, fov:Math.PI/2.2},
+    {roomIdx:8, offX:0.5, offY:0.2, angle:Math.PI*0.5, fov:Math.PI/2.5},
+  ];
+  for(const def of camDefs){
+    const r=rooms[def.roomIdx];
+    if(!r) continue;
+    cameras.push({
+      x: r.x+r.w*def.offX,
+      y: r.y+r.h*def.offY,
+      angle: def.angle,
+      fov: def.fov,
+      range: 7,
+      selected: false,
+    });
+  }
+}
+
+function isInCone(cam, px, py){
+  const dx=px-cam.x, dy=py-cam.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist>cam.range) return false;
+  const angle=Math.atan2(dy,dx);
+  let diff=angle-cam.angle;
+  while(diff>Math.PI) diff-=2*Math.PI;
+  while(diff<-Math.PI) diff+=2*Math.PI;
+  return Math.abs(diff)<cam.fov/2;
+}
+
+function isVisible(px,py){
+  // Check all cameras
+  for(const cam of cameras){
+    if(isInCone(cam,px,py)) return true;
+  }
+  // Check active spotlight
+  if(spotlightActive&&spotlightTimer>0){
+    const dx=px-spotlightPos.x, dy=py-spotlightPos.y;
+    if(Math.sqrt(dx*dx+dy*dy)<spotlightRadius) return true;
+  }
+  // Check drone ping
+  if(dronePingActive&&dronePingTimer>0){
+    const r=getRoomAt(Math.floor(px),Math.floor(py));
+    if(r&&r.id===dronePingRoom) return true;
+  }
+  return false;
+}
+
+// ============================================================
+//  THIEVES
+// ============================================================
+let thieves=[];
+const THIEF_TYPES={
+  basic:{name:'Intruder',speed:1.8,pickSpeed:1,color:'#ff4444',symbol:'T',stealth:0},
+  fast:{name:'Runner',speed:3.2,pickSpeed:0.8,color:'#ff8800',symbol:'R',stealth:0},
+  lockpick:{name:'Locksmith',speed:1.5,pickSpeed:3,color:'#ffaa44',symbol:'L',stealth:0},
+  ghost:{name:'Ghost',speed:2.0,pickSpeed:1,color:'#8844ff',symbol:'G',stealth:0.4},
+  heavy:{name:'Brute',speed:1.2,pickSpeed:1.5,color:'#ff2222',symbol:'B',stealth:0},
+};
+
+function spawnThief(type,entry){
+  const t=THIEF_TYPES[type]||THIEF_TYPES.basic;
+  thieves.push({
+    x:entry.x+0.5, y:entry.y+0.5,
+    ...t, type,
+    path:[], pathTimer:0,
+    stunTimer:0,
+    pickingDoor:null,
+    reachedVault:false,
+    visible:false,
+    spottedTimer:0,
+  });
+}
+
+// BFS pathfinding
+function findPath(sx,sy,tx,ty){
+  const si=Math.floor(sx), sj=Math.floor(sy);
+  const ti=Math.floor(tx), tj=Math.floor(ty);
+  if(si===ti&&sj===tj) return[];
+  const visited=Array.from({length:GRID_H},()=>Array(GRID_W).fill(false));
+  const parent=Array.from({length:GRID_H},()=>Array(GRID_W).fill(null));
+  const q=[{x:si,y:sj}]; visited[sj][si]=true;
+  const dirs=[{dx:0,dy:-1},{dx:1,dy:0},{dx:0,dy:1},{dx:-1,dy:0}];
+  while(q.length){
+    const cur=q.shift();
+    for(const d of dirs){
+      const nx=cur.x+d.dx, ny=cur.y+d.dy;
+      if(nx<0||nx>=GRID_W||ny<0||ny>=GRID_H) continue;
+      if(visited[ny][nx]) continue;
+      const tile=grid[ny][nx];
+      if(tile===0) continue; // wall
+      visited[ny][nx]=true;
+      parent[ny][nx]={x:cur.x,y:cur.y};
+      if(nx===ti&&ny===tj){
+        const path=[];
+        let p={x:ti,y:tj};
+        while(p&&!(p.x===si&&p.y===sj)){path.unshift({x:p.x+0.5,y:p.y+0.5});p=parent[p.y][p.x];}
+        return path;
+      }
+      q.push({x:nx,y:ny});
+    }
+  }
+  return[];
+}
+
+function findVaultPos(){
+  for(let y=0;y<GRID_H;y++)for(let x=0;x<GRID_W;x++)if(grid[y][x]===3)return{x:x+0.5,y:y+0.5};
+  return null;
+}
+
+function updateThief(thief,dt){
+  if(thief.reachedVault) return;
+
+  // Stunned
+  if(thief.stunTimer>0){thief.stunTimer-=dt;return;}
+
+  // Spotlight slow
+  let speedMult=1;
+  if(spotlightActive&&spotlightTimer>0){
+    const dx=thief.x-spotlightPos.x, dy=thief.y-spotlightPos.y;
+    if(Math.sqrt(dx*dx+dy*dy)<spotlightRadius) speedMult=0.3;
+  }
+
+  // Picking a door
+  if(thief.pickingDoor){
+    const door=thief.pickingDoor;
+    if(!door.locked){thief.pickingDoor=null; return;}
+    door.hp-=thief.pickSpeed*dt;
+    door.breaking=true;
+    if(door.hp<=0){
+      door.locked=false; door.breaking=false; door.hp=0;
+      thief.pickingDoor=null;
+    }
+    return;
+  }
+
+  // Path to vault
+  const vault=findVaultPos();
+  if(!vault) return;
+  thief.pathTimer-=dt;
+  if(thief.path.length===0||thief.pathTimer<=0){
+    thief.path=findPath(thief.x,thief.y,vault.x,vault.y);
+    thief.pathTimer=2+Math.random()*2;
+  }
+
+  if(thief.path.length===0) return;
+
+  const next=thief.path[0];
+  const dx=next.x-thief.x, dy=next.y-thief.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+
+  // Check for locked door ahead
+  const nextTile=grid[Math.floor(next.y)];
+  const tileVal=nextTile?nextTile[Math.floor(next.x)]:0;
+  if(tileVal===2){
+    const door=doors.find(d=>d.x===Math.floor(next.x)&&d.y===Math.floor(next.y));
+    if(door&&door.locked){
+      thief.pickingDoor=door;
+      return;
+    }
+  }
+
+  const moveSpeed=thief.speed*speedMult*TILE*dt;
+  if(dist<moveSpeed){
+    thief.x=next.x; thief.y=next.y;
+    thief.path.shift();
+    // Check vault
+    if(grid[Math.floor(thief.y)][Math.floor(thief.x)]===3){
+      thief.reachedVault=true;
+    }
+  } else {
+    thief.x+=dx/dist*moveSpeed;
+    thief.y+=dy/dist*moveSpeed;
+  }
+}
+
+function updateThiefVisibility(){
+  for(const t of thieves){
+    const wasVisible=t.visible;
+    t.visible=isVisible(t.x,t.y);
+    // Ghost stealth
+    if(t.visible&&t.stealth>0&&Math.random()<t.stealth){
+      if(!hasUpgrade('motion_detection')) t.visible=false;
+    }
+    if(t.visible&&!wasVisible) t.spottedTimer=0.5;
+    if(t.spottedTimer>0) t.spottedTimer-=1/60;
+  }
+}
+
+// ============================================================
+//  ABILITIES
+// ============================================================
+// Lock Door
+let lockDoorCooldown=0, lockDoorMaxCD=8;
+// Spotlight
+let spotlightCooldown=0, spotlightMaxCD=12;
+let spotlightActive=false, spotlightTimer=0, spotlightDuration=3;
+let spotlightPos={x:0,y:0}, spotlightRadius=4;
+// Drone Ping
+let dronePingCooldown=0, dronePingMaxCD=15;
+let dronePingActive=false, dronePingTimer=0, dronePingDuration=2;
+let dronePingRoom=-1;
+
+let actionMode=null; // null | 'lock' | 'spotlight' | 'drone'
+let selectedCamIdx=-1;
+let draggingCam=false;
+
+function tryLockDoor(wx,wy){
+  const gx=Math.floor(wx), gy=Math.floor(wy);
+  const door=doors.find(d=>d.x===gx&&d.y===gy);
+  if(!door){addLog('No door there.','amber');return false;}
+  if(door.locked){addLog('Already locked.','amber');return false;}
+  if(lockDoorCooldown>0){addLog('Lock on cooldown.','amber');return false;}
+  door.locked=true; door.hp=3+getDoorBonus(); door.breaking=false;
+  lockDoorCooldown=lockDoorMaxCD;
+  addLog('Door LOCKED.','green');
+  actionMode=null;
+  return true;
+}
+
+function trySpotlight(wx,wy){
+  if(spotlightCooldown>0){addLog('Spotlight on cooldown.','amber');return false;}
+  spotlightPos={x:wx,y:wy};
+  spotlightActive=true;
+  spotlightTimer=spotlightDuration;
+  spotlightCooldown=spotlightMaxCD;
+  addLog('SPOTLIGHT deployed — reveals & slows!','green');
+  actionMode=null;
+  return true;
+}
+
+function tryDronePing(wx,wy){
+  if(dronePingCooldown>0){addLog('Drone on cooldown.','amber');return false;}
+  const r=getRoomAt(Math.floor(wx),Math.floor(wy));
+  if(!r){addLog('Target a room.','amber');return false;}
+  dronePingRoom=r.id;
+  dronePingActive=true;
+  dronePingTimer=dronePingDuration;
+  dronePingCooldown=dronePingMaxCD;
+  addLog('DRONE PING — room "'+r.name+'" scanned!','green');
+  actionMode=null;
+  return true;
+}
+
+function getDoorBonus(){return hasUpgrade('reinforced_doors')?3:0;}
+
+// ============================================================
+//  UPGRADES
+// ============================================================
+let ownedUpgrades=new Set();
+const UPGRADES=[
+  {id:'extra_camera',name:'Extra Camera',cat:'HARDWARE',icon:'[+CAM]',desc:'Add a 5th camera to your system.'},
+  {id:'wide_angle',name:'Wide Angle Lens',cat:'HARDWARE',icon:'[WIDE]',desc:'Camera FOV increased by 30%.'},
+  {id:'long_range',name:'Long Range',cat:'HARDWARE',icon:'[RANG]',desc:'Camera range increased by 40%.'},
+  {id:'night_vision',name:'Night Vision',cat:'HARDWARE',icon:'[NVIS]',desc:'Cameras see through walls in adjacent tiles.'},
+  {id:'motion_detection',name:'Motion Detect',cat:'SOFTWARE',icon:'[MOTN]',desc:'Counters Ghost stealth. Auto-alerts on movement.'},
+  {id:'fast_reboot',name:'Fast Reboot',cat:'SOFTWARE',icon:'[FAST]',desc:'All ability cooldowns reduced by 30%.'},
+  {id:'predictive',name:'Predictive AI',cat:'SOFTWARE',icon:'[PRED]',desc:'Shows thief shadows near camera edges.'},
+  {id:'reinforced_doors',name:'Reinforced Doors',cat:'DEFENSE',icon:'[DOOR]',desc:'Locked doors have double HP.'},
+  {id:'emp_stun',name:'EMP Stun',cat:'DEFENSE',icon:'[EMP!]',desc:'Spotlight also stuns thieves for 1.5s.'},
+  {id:'auto_lock',name:'Auto-Lock',cat:'DEFENSE',icon:'[LOCK]',desc:'Doors auto-lock when a thief is spotted nearby.'},
+  {id:'double_ping',name:'Double Ping',cat:'DEFENSE',icon:'[2xPG]',desc:'Drone Ping lasts twice as long.'},
+  {id:'spotlight_xl',name:'Spotlight XL',cat:'DEFENSE',icon:'[XLSP]',desc:'Spotlight radius increased by 50%.'},
+];
+
+function hasUpgrade(id){return ownedUpgrades.has(id);}
+
+function getUpgradeChoices(){
+  const avail=UPGRADES.filter(u=>!ownedUpgrades.has(u.id));
+  const shuffled=avail.sort(()=>Math.random()-0.5);
+  return shuffled.slice(0,3);
+}
+
+// ============================================================
+//  NARRATIVE
+// ============================================================
+const STORY=[
+  {sender:'Management <ops@meridian-corp.net>',
+   text:'Welcome to Meridian Security Corp, operator.\n\nYour assignment: overnight surveillance of the Hargrove Collection vault.\n\nThe collection contains a single item — the Koh-i-Sera diamond.\n\nMonitor cameras. Rotate them with your mouse. Lock doors. Deploy countermeasures.\n\nDo not leave your station.\n\nGood luck on your first shift.',
+   choices:[{text:'> Understood. Ready for duty.',flag:'loyal'},{text:'> "Don\'t leave my station"? What happens if I do?',flag:'question'}]},
+  {sender:'D. Chen <d.chen@meridian-corp.net>',
+   text:'Hey, new operator. I had the shift before you.\n\nHeads up: the break-in patterns are getting weird. Same entry point, same time, three nights in a row.\n\nAlmost like they knew the camera rotation schedule.\n\nDon\'t bother asking management about it. They told me to "focus on my station."\n\n- Chen',
+   choices:[{text:'> Thanks. I\'ll watch for patterns.',flag:'insider'},{text:'> Sounds like overthinking. I\'ll handle it.',flag:'ignore'}]},
+  {sender:'UNKNOWN <encrypted-relay>',
+   text:'Operator,\n\nThe diamond in that vault was stolen from the National Museum of Karesha six months ago. Meridian "acquired" it through a shell company.\n\nThe heists aren\'t random — they\'re recovery attempts by the original owners.\n\nYou\'re not protecting a jewel. You\'re guarding stolen property.\n\nI can prove it. But I need you to consider what side you\'re on.',
+   choices:[{text:'> I need to see this proof.',flag:'investigate'},{text:'> Nice try. I\'m doing my job.',flag:'loyal'}]},
+  {sender:'Management <ops@meridian-corp.net>',
+   text:'Operator, your performance has been adequate.\n\nCompensation increased by 40%. Contract extended.\n\nWe value loyalty. The Hargrove Collection must remain secure at all costs.\n\nOne more shift.',
+   choices:[{text:'> Copy that.',flag:'loyal'},{text:'> "At all costs" — what does that mean exactly?',flag:'question'}]},
+  {sender:'SYSTEM',
+   text:'FINAL SHIFT INITIATED.\n\nAll available resources deployed. Maximum threat level.\n\nProtect the vault.\n\n// END TRANSMISSION',
+   choices:[{text:'> Let\'s finish this.',flag:'loyal'}]},
+];
+
+let narrativeFlags=new Set();
+
+function getEnding(survived){
+  if(!survived) return{title:'SECURITY BREACH',text:'The diamond is gone. Contract terminated. You never learn the full truth.',type:'fail'};
+  if(narrativeFlags.has('investigate')) return{title:'THE WHISTLEBLOWER',text:'The story breaks across every major news outlet. The diamond returns to Karesha. Meridian faces criminal charges.\n\nYou\'re out of a job, but your conscience is clear.',type:'win'};
+  if(narrativeFlags.has('insider')&&narrativeFlags.has('question')) return{title:'THE TRUTH BENEATH',text:'Chen\'s investigation reveals Meridian\'s AI was orchestrating the break-ins — an insurance fraud scheme.\n\nThe real crime was never about the jewel.',type:'win'};
+  return{title:'THE LOYAL GUARD',text:'Five shifts. Five successful defenses. Meridian awards you their highest commendation.\n\nLate at night, you sometimes wonder if you were guarding the right thing.',type:'win'};
+}
+
+// ============================================================
+//  WAVE SYSTEM
+// ============================================================
+function getWave(shift,waveNum){
+  const waves={
+    0:[['basic','basic'],['basic','fast']],
+    1:[['basic','basic','lockpick'],['fast','fast','basic']],
+    2:[['basic','lockpick','fast'],['ghost','basic','basic'],['fast','fast','lockpick']],
+    3:[['lockpick','ghost','fast'],['heavy','basic','basic','fast']],
+    4:[['heavy','lockpick','ghost','fast'],['fast','fast','ghost','lockpick'],['heavy','heavy','lockpick']],
+  };
+  const sw=waves[Math.min(shift,4)]||waves[4];
+  return sw[waveNum%sw.length];
+}
+
+// ============================================================
+//  EVENT LOG
+// ============================================================
+let logEntries=[];
+function addLog(msg,color){
+  logEntries.push({msg,color:color||'textDim',time:gameTime});
+  if(logEntries.length>50) logEntries.shift();
+}
+
+// ============================================================
+//  GAME STATE
+// ============================================================
+const STATE={TITLE:0,NARRATIVE:1,PLAYING:2,UPGRADE:3,GAMEOVER:4};
+let state=STATE.TITLE;
+let shiftNum=0, maxShifts=5;
+let gameTime=0; // seconds elapsed in shift
+let waveIndex=0, waveTimers=[];
+let shiftDuration=60; // seconds per shift
+let shiftComplete=false;
+let totalDoorsLocked=0, totalSpotlights=0, totalPings=0;
+let frameCount=0;
+let upgradeChoices=[];
+let upgradeHover=-1;
+// Narrative
+let narrativeIndex=0;
+let narrativeTyped='', narrativeCharIdx=0, narrativeTypeTimer=0;
+let narrativeReady=false;
+// Particles
+let particles=[];
+// Mouse
+let mouseX=0, mouseY=0, mouseClicked=false;
+let shakeTimer=0, shakeIntensity=0;
+
+// ============================================================
+//  INPUT
+// ============================================================
+canvas.addEventListener('mousemove',e=>{
+  const rect=canvas.getBoundingClientRect();
+  mouseX=(e.clientX-rect.left)/SCALE;
+  mouseY=(e.clientY-rect.top)/SCALE;
+});
+canvas.addEventListener('mousedown',e=>{
+  e.preventDefault();
+  if(e.button===0) mouseClicked=true;
+});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+document.addEventListener('keydown',e=>{
+  if(state===STATE.TITLE){
+    if(e.code==='Space'){startRun();e.preventDefault();}
+  } else if(state===STATE.PLAYING){
+    if(e.code==='Digit1'||e.code==='KeyQ') actionMode=actionMode==='lock'?null:'lock';
+    if(e.code==='Digit2'||e.code==='KeyW') actionMode=actionMode==='spotlight'?null:'spotlight';
+    if(e.code==='Digit3'||e.code==='KeyE') actionMode=actionMode==='drone'?null:'drone';
+    if(e.code==='Escape') {actionMode=null; selectedCamIdx=-1;}
+  } else if(state===STATE.UPGRADE){
+    if(e.key==='1') selectUpgrade(0);
+    if(e.key==='2') selectUpgrade(1);
+    if(e.key==='3') selectUpgrade(2);
+  } else if(state===STATE.GAMEOVER){
+    if(e.code==='Space') state=STATE.TITLE;
+  }
+});
+
+// ============================================================
+//  GAME FLOW
+// ============================================================
+function startRun(){
+  shiftNum=0; ownedUpgrades=new Set(); narrativeFlags=new Set();
+  totalDoorsLocked=0; totalSpotlights=0; totalPings=0;
+  narrativeIndex=0;
+  showNarrative();
+}
+
+function showNarrative(){
+  if(narrativeIndex>=STORY.length){startShift();return;}
+  state=STATE.NARRATIVE;
+  narrativeTyped=''; narrativeCharIdx=0; narrativeTypeTimer=0; narrativeReady=false;
+}
+
+function startShift(){
+  generateMap(shiftNum);
+  initCameras();
+  // Apply upgrades
+  if(hasUpgrade('extra_camera')&&cameras.length<5){
+    const r=rooms[1]||rooms[0];
+    cameras.push({x:r.x+r.w*0.5,y:r.y+r.h*0.8,angle:-Math.PI/4,fov:Math.PI/2.5,range:7,selected:false});
+  }
+  if(hasUpgrade('wide_angle')) cameras.forEach(c=>c.fov*=1.3);
+  if(hasUpgrade('long_range')) cameras.forEach(c=>c.range*=1.4);
+  if(hasUpgrade('fast_reboot')){lockDoorMaxCD*=0.7;spotlightMaxCD*=0.7;dronePingMaxCD*=0.7;}
+  if(hasUpgrade('spotlight_xl')) spotlightRadius=6;
+  if(hasUpgrade('double_ping')) dronePingDuration=4;
+
+  thieves=[];
+  gameTime=0; waveIndex=0;
+  shiftComplete=false;
+  lockDoorCooldown=0; spotlightCooldown=0; dronePingCooldown=0;
+  spotlightActive=false; dronePingActive=false;
+  actionMode=null; selectedCamIdx=-1;
+  logEntries=[];
+
+  // Wave timing
+  waveTimers=[3]; // first wave at 3s
+  const numWaves=2+Math.min(shiftNum,3);
+  for(let i=1;i<numWaves;i++) waveTimers.push(3+i*(shiftDuration/(numWaves+1)));
+  shiftDuration=50+shiftNum*8;
+
+  addLog('Shift '+(shiftNum+1)+' started. '+entries.length+' entry points.','green');
+  state=STATE.PLAYING;
+}
+
+function endShift(survived){
+  if(!survived){
+    state=STATE.GAMEOVER;
+    return;
+  }
+  shiftNum++;
+  if(shiftNum>=maxShifts){state=STATE.GAMEOVER;return;}
+  // Show upgrade
+  upgradeChoices=getUpgradeChoices();
+  upgradeHover=-1;
+  state=STATE.UPGRADE;
+}
+
+function selectUpgrade(idx){
+  if(idx<0||idx>=upgradeChoices.length) return;
+  ownedUpgrades.add(upgradeChoices[idx].id);
+  narrativeIndex++;
+  showNarrative();
+}
+
+// ============================================================
+//  UPDATE
+// ============================================================
+let lastTime=0;
+function update(timestamp){
+  const dt=Math.min((timestamp-lastTime)/1000, 0.05);
+  lastTime=timestamp;
+  frameCount++;
+
+  if(state===STATE.PLAYING){
+    gameTime+=dt;
+
+    // Cooldowns
+    if(lockDoorCooldown>0) lockDoorCooldown=Math.max(0,lockDoorCooldown-dt);
+    if(spotlightCooldown>0) spotlightCooldown=Math.max(0,spotlightCooldown-dt);
+    if(dronePingCooldown>0) dronePingCooldown=Math.max(0,dronePingCooldown-dt);
+
+    // Spotlight timer
+    if(spotlightActive){
+      spotlightTimer-=dt;
+      if(spotlightTimer<=0){spotlightActive=false;}
+    }
+    // Drone ping timer
+    if(dronePingActive){
+      dronePingTimer-=dt;
+      if(dronePingTimer<=0){dronePingActive=false;}
+    }
+
+    // Spawn waves
+    while(waveIndex<waveTimers.length&&gameTime>=waveTimers[waveIndex]){
+      const comp=getWave(shiftNum,waveIndex);
+      const availEntries=[...entries];
+      for(const type of comp){
+        const entry=availEntries[Math.floor(Math.random()*availEntries.length)];
+        spawnThief(type,entry);
+      }
+      addLog('Wave '+(waveIndex+1)+': '+comp.length+' intruder(s)!','red');
+      shakeTimer=0.3; shakeIntensity=3;
+      waveIndex++;
+    }
+
+    // Update thieves
+    for(const t of thieves) updateThief(t,dt);
+    updateThiefVisibility();
+
+    // Auto-lock
+    if(hasUpgrade('auto_lock')){
+      for(const door of doors){
+        if(door.locked) continue;
+        for(const t of thieves){
+          if(!t.visible||t.reachedVault) continue;
+          const dd=Math.sqrt((t.x-door.x-0.5)**2+(t.y-door.y-0.5)**2);
+          if(dd<3){door.locked=true;door.hp=3+getDoorBonus();addLog('Auto-lock triggered.','green');break;}
+        }
+      }
+    }
+
+    // EMP stun from spotlight
+    if(spotlightActive&&hasUpgrade('emp_stun')){
+      for(const t of thieves){
+        const dx=t.x-spotlightPos.x, dy=t.y-spotlightPos.y;
+        if(Math.sqrt(dx*dx+dy*dy)<spotlightRadius&&t.stunTimer<=0){
+          t.stunTimer=1.5;
+        }
+      }
+    }
+
+    // Check vault breach
+    if(thieves.some(t=>t.reachedVault)){
+      addLog('VAULT BREACHED!','red');
+      shakeTimer=0.5; shakeIntensity=8;
+      endShift(false);
+    }
+
+    // Check shift complete
+    if(gameTime>=shiftDuration&&!shiftComplete){
+      shiftComplete=true;
+      addLog('Shift complete! All threats neutralized.','green');
+      endShift(true);
+    }
+
+    // Handle clicks
+    if(mouseClicked){
+      mouseClicked=false;
+      handleGameClick();
+    }
+  } else if(state===STATE.NARRATIVE){
+    // Typewriter
+    const story=STORY[narrativeIndex];
+    if(story&&narrativeCharIdx<story.text.length){
+      narrativeTypeTimer+=dt;
+      const charsPerSec=40;
+      while(narrativeTypeTimer>1/charsPerSec&&narrativeCharIdx<story.text.length){
+        narrativeTyped+=story.text[narrativeCharIdx];
+        narrativeCharIdx++;
+        narrativeTypeTimer-=1/charsPerSec;
+      }
+    } else {
+      narrativeReady=true;
+    }
+    if(mouseClicked){
+      mouseClicked=false;
+      if(!narrativeReady){
+        // Skip typing
+        narrativeTyped=STORY[narrativeIndex].text;
+        narrativeCharIdx=STORY[narrativeIndex].text.length;
+        narrativeReady=true;
+      } else {
+        // Check choice clicks
+        handleNarrativeClick();
+      }
+    }
+  } else if(state===STATE.TITLE){
+    if(mouseClicked){mouseClicked=false;startRun();}
+  } else if(state===STATE.UPGRADE){
+    if(mouseClicked){
+      mouseClicked=false;
+      if(upgradeHover>=0) selectUpgrade(upgradeHover);
+    }
+  } else if(state===STATE.GAMEOVER){
+    if(mouseClicked){mouseClicked=false;state=STATE.TITLE;}
+  }
+
+  // Shake
+  if(shakeTimer>0) shakeTimer=Math.max(0,shakeTimer-dt);
+
+  // Particles
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx*dt*60; p.y+=p.vy*dt*60; p.life-=dt;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+
+function handleGameClick(){
+  const world=toWorld(mouseX,mouseY);
+
+  // Check if clicking a camera to select it
+  if(!actionMode){
+    for(let i=0;i<cameras.length;i++){
+      const cam=cameras[i];
+      const cs=toScreen(cam.x*TILE,cam.y*TILE);
+      const dx=mouseX-cs.x, dy=mouseY-cs.y;
+      if(Math.sqrt(dx*dx+dy*dy)<15){
+        selectedCamIdx=i;
+        return;
+      }
+    }
+    // If camera selected, rotate it toward click
+    if(selectedCamIdx>=0){
+      const cam=cameras[selectedCamIdx];
+      const wx=world.x/TILE, wy=world.y/TILE;
+      cam.angle=Math.atan2(wy-cam.y, wx-cam.x);
+      return;
+    }
+  }
+
+  // Ability modes
+  const wx=world.x/TILE, wy=world.y/TILE;
+  if(actionMode==='lock'){tryLockDoor(wx,wy);return;}
+  if(actionMode==='spotlight'){trySpotlight(wx,wy);return;}
+  if(actionMode==='drone'){tryDronePing(wx,wy);return;}
+
+  // Default: rotate selected camera
+  if(selectedCamIdx>=0){
+    const cam=cameras[selectedCamIdx];
+    cam.angle=Math.atan2(wy-cam.y, wx-cam.x);
+  }
+}
+
+function handleNarrativeClick(){
+  const story=STORY[narrativeIndex];
+  if(!story) return;
+  // Check which choice was clicked
+  const baseY=340;
+  for(let i=0;i<story.choices.length;i++){
+    const cy=baseY+i*35;
+    if(mouseY>=cy-12&&mouseY<=cy+12&&mouseX>150&&mouseX<750){
+      if(story.choices[i].flag) narrativeFlags.add(story.choices[i].flag);
+      narrativeIndex++;
+      if(narrativeIndex<STORY.length&&narrativeIndex<=shiftNum){
+        // Already shown enough narratives, start shift
+        startShift();
+      } else {
+        startShift();
+      }
+      return;
+    }
+  }
+}
+
+// ============================================================
+//  DRAWING
+// ============================================================
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle=COL.bg; ctx.fillRect(0,0,W,H);
+
+  if(shakeTimer>0){
+    ctx.save();
+    ctx.translate((Math.random()-0.5)*shakeIntensity,(Math.random()-0.5)*shakeIntensity);
+  }
+
+  switch(state){
+    case STATE.TITLE: drawTitle(); break;
+    case STATE.NARRATIVE: drawNarrative(); break;
+    case STATE.PLAYING: drawGame(); break;
+    case STATE.UPGRADE: drawUpgrade(); break;
+    case STATE.GAMEOVER: drawGameOver(); break;
+  }
+
+  // Particles
+  for(const p of particles){
+    ctx.globalAlpha=Math.max(0,p.life/p.maxLife);
+    ctx.fillStyle=p.color;
+    ctx.fillRect(p.x-p.size/2,p.y-p.size/2,p.size,p.size);
+  }
+  ctx.globalAlpha=1;
+
+  if(shakeTimer>0) ctx.restore();
+
+  // Phosphor bloom
+  phosphorCtx.drawImage(canvas,0,0);
+}
+
+// ---- TITLE ----
+function drawTitle(){
+  // Ambient grid
+  ctx.fillStyle='#0a120a';
+  for(let y=0;y<H;y+=20)for(let x=0;x<W;x+=20){
+    if((x/20+y/20)%2===0) ctx.fillRect(x,y,20,20);
+  }
+
+  ctx.save(); ctx.shadowColor='#33ff66'; ctx.shadowBlur=30;
+  ctx.fillStyle=COL.green; ctx.font='bold 48px "Courier New"'; ctx.textAlign='center';
+  ctx.fillText('CAMCTRL',W/2,180);
+  ctx.shadowBlur=15; ctx.fillText('CAMCTRL',W/2,180);
+  ctx.restore();
+
+  ctx.fillStyle=COL.greenDim; ctx.font='14px "Courier New"';
+  ctx.fillText('SECURITY MONITORING SYSTEM v2.7',W/2,215);
+
+  ctx.fillStyle=COL.textDim; ctx.font='12px "Courier New"';
+  const lines=[
+    'Monitor cameras. Rotate vision cones. Stop the thieves.',
+    '',
+    'Click cameras to select, click map to aim them.',
+    '[1/Q] Lock Door    [2/W] Spotlight    [3/E] Drone Ping',
+    '',
+    'Survive 5 shifts. Protect the diamond.',
+  ];
+  lines.forEach((l,i)=>ctx.fillText(l,W/2,270+i*20));
+
+  const blink=Math.sin(Date.now()*0.005)>0;
+  if(blink){
+    ctx.save(); ctx.shadowColor=COL.green; ctx.shadowBlur=12;
+    ctx.fillStyle=COL.green; ctx.font='bold 16px "Courier New"';
+    ctx.fillText('[ CLICK or SPACE TO START ]',W/2,440);
+    ctx.restore();
+  }
+}
+
+// ---- NARRATIVE ----
+function drawNarrative(){
+  ctx.fillStyle='#060a06'; ctx.fillRect(0,0,W,H);
+
+  // Panel
+  const px=100, py=80, pw=W-200, ph=420;
+  ctx.fillStyle=COL.panel; ctx.fillRect(px,py,pw,ph);
+  ctx.strokeStyle=COL.panelBorder; ctx.lineWidth=1; ctx.strokeRect(px,py,pw,ph);
+
+  ctx.fillStyle=COL.textDim; ctx.font='10px "Courier New"'; ctx.textAlign='left';
+  ctx.fillText('INCOMING MESSAGE',px+15,py+20);
+  ctx.strokeStyle=COL.panelBorder; ctx.beginPath(); ctx.moveTo(px+15,py+28);ctx.lineTo(px+pw-15,py+28);ctx.stroke();
+
+  const story=STORY[narrativeIndex];
+  if(!story) return;
+
+  ctx.fillStyle=COL.amber; ctx.font='11px "Courier New"';
+  ctx.fillText('FROM: '+story.sender,px+15,py+48);
+
+  // Typed text
+  ctx.fillStyle=COL.textDim; ctx.font='12px "Courier New"';
+  const maxW=pw-40;
+  wrapText(ctx,narrativeTyped,px+15,py+75,maxW,18);
+
+  // Choices
+  if(narrativeReady){
+    for(let i=0;i<story.choices.length;i++){
+      const cy=340+i*35;
+      const hover=mouseY>=cy-12&&mouseY<=cy+12&&mouseX>150&&mouseX<750;
+      ctx.fillStyle=hover?COL.green:COL.greenDim;
+      if(hover){ctx.save();ctx.shadowColor=COL.green;ctx.shadowBlur=6;}
+      ctx.font='12px "Courier New"'; ctx.textAlign='center';
+      ctx.fillText(story.choices[i].text,W/2,cy+4);
+      if(hover) ctx.restore();
+    }
+  }
+}
+
+function wrapText(ctx,text,x,y,maxW,lineH){
+  const paragraphs=text.split('\n');
+  let cy=y;
+  for(const para of paragraphs){
+    if(para===''){cy+=lineH*0.6;continue;}
+    const words=para.split(' ');
+    let line='';
+    for(const word of words){
+      const test=line+word+' ';
+      if(ctx.measureText(test).width>maxW&&line!==''){
+        ctx.fillText(line.trim(),x,cy);
+        cy+=lineH; line=word+' ';
+      } else line=test;
+    }
+    if(line.trim()) {ctx.fillText(line.trim(),x,cy);cy+=lineH;}
+  }
+}
+
+// ---- GAME ----
+function drawGame(){
+  // Floor
+  drawMap();
+
+  // Vision cones
+  drawCones();
+
+  // Spotlight
+  if(spotlightActive&&spotlightTimer>0) drawSpotlight();
+
+  // Drone ping
+  if(dronePingActive&&dronePingTimer>0) drawDronePing();
+
+  // Thieves
+  drawThieves();
+
+  // Cameras (icons)
+  drawCameras();
+
+  // HUD
+  drawHUD();
+
+  // Action mode cursor
+  drawActionCursor();
+}
+
+function drawMap(){
+  for(let gy=0;gy<GRID_H;gy++){
+    for(let gx=0;gx<GRID_W;gx++){
+      const tile=grid[gy][gx];
+      if(tile===0) continue; // wall — skip, draw later as edges
+
+      const s=toScreen(gx*TILE, gy*TILE);
+      const sw=TILE*ISO_SCALE;
+      const sh=TILE*ISO_SCALE*ISO_SQUASH;
+
+      // Floor
+      ctx.fillStyle=((gx+gy)%2===0)?COL.floor:COL.floorAlt;
+      ctx.fillRect(s.x,s.y,sw,sh);
+
+      // Floor dot pattern
+      if((gx+gy)%4===0){
+        ctx.fillStyle='#162416';
+        ctx.fillRect(s.x+sw*0.4,s.y+sh*0.4,2,1);
+      }
+
+      // Door
+      if(tile===2){
+        const door=doors.find(d=>d.x===gx&&d.y===gy);
+        ctx.fillStyle=(door&&door.locked)?COL.doorLocked:COL.door;
+        // Determine orientation
+        const vertical=(gy>0&&grid[gy-1][gx]===0)||(gy<GRID_H-1&&grid[gy+1][gx]===0);
+        if(vertical){
+          ctx.fillRect(s.x+2,s.y+sh*0.3,sw-4,sh*0.4);
+        } else {
+          ctx.fillRect(s.x+sw*0.3,s.y+1,sw*0.4,sh-2);
+        }
+        // Breaking indicator
+        if(door&&door.breaking){
+          ctx.fillStyle='rgba(255,100,0,'+(.3+.3*Math.sin(frameCount*0.2))+')';
+          ctx.fillRect(s.x,s.y,sw,sh);
+        }
+      }
+
+      // Vault gem
+      if(tile===3){
+        const cx=s.x+sw/2, cy=s.y+sh/2;
+        const pulse=0.5+0.5*Math.sin(frameCount*0.05);
+        ctx.fillStyle=COL.vaultGlow;
+        ctx.beginPath(); ctx.arc(cx,cy,sw*0.6*pulse,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle=COL.vault;
+        ctx.beginPath();
+        ctx.moveTo(cx,cy-sh*0.4);ctx.lineTo(cx+sw*0.35,cy);
+        ctx.lineTo(cx,cy+sh*0.4);ctx.lineTo(cx-sw*0.35,cy);
+        ctx.closePath(); ctx.fill();
+      }
+
+      // Entry
+      if(tile===4){
+        ctx.fillStyle='rgba(255,68,68,0.3)';
+        ctx.fillRect(s.x+2,s.y+1,sw-4,sh-2);
+        ctx.fillStyle='#ff4444'; ctx.font='8px monospace'; ctx.textAlign='center';
+        ctx.fillText('E',s.x+sw/2,s.y+sh/2+3);
+      }
+    }
+  }
+
+  // Draw wall edges for depth
+  for(let gy=0;gy<GRID_H;gy++){
+    for(let gx=0;gx<GRID_W;gx++){
+      const tile=grid[gy][gx];
+      if(tile!==0) continue;
+
+      const s=toScreen(gx*TILE,gy*TILE);
+      const sw=TILE*ISO_SCALE;
+      const sh=TILE*ISO_SCALE*ISO_SQUASH;
+
+      // Only draw walls adjacent to floors
+      let adjFloor=false;
+      for(const [dx,dy] of [[0,-1],[0,1],[-1,0],[1,0]]){
+        const nx=gx+dx,ny=gy+dy;
+        if(nx>=0&&nx<GRID_W&&ny>=0&&ny<GRID_H&&grid[ny][nx]!==0) adjFloor=true;
+      }
+      if(!adjFloor) continue;
+
+      ctx.fillStyle=COL.wall;
+      ctx.fillRect(s.x,s.y,sw,sh);
+      // Top edge highlight
+      if(gy+1<GRID_H&&grid[gy+1][gx]!==0){
+        ctx.fillStyle=COL.wallTop;
+        ctx.fillRect(s.x,s.y+sh-1,sw,1);
+      }
+      // Right edge
+      if(gx+1<GRID_W&&grid[gy][gx+1]!==0){
+        ctx.fillStyle=COL.wallEdge;
+        ctx.fillRect(s.x+sw-1,s.y,1,sh);
+      }
+    }
+  }
+
+  // Room labels
+  ctx.font='9px monospace'; ctx.textAlign='center';
+  for(const r of rooms){
+    const s=toScreen((r.x+r.w/2)*TILE,(r.y+0.3)*TILE);
+    ctx.fillStyle=r.type==='vault'?COL.vault:'#1a4428';
+    ctx.fillText(r.name,s.x,s.y);
+  }
+}
+
+function drawCones(){
+  for(let i=0;i<cameras.length;i++){
+    const cam=cameras[i];
+    const cs=toScreen(cam.x*TILE,cam.y*TILE);
+    const range=cam.range*TILE*ISO_SCALE;
+    const rangeY=cam.range*TILE*ISO_SCALE*ISO_SQUASH;
+
+    const isSel=(i===selectedCamIdx);
+    ctx.fillStyle=isSel?COL.coneBright:COL.cone;
+    ctx.beginPath();
+    ctx.moveTo(cs.x,cs.y);
+
+    // Draw cone as arc in screen space, adjusting for squash
+    const segments=24;
+    const halfFov=cam.fov/2;
+    for(let s=0;s<=segments;s++){
+      const a=cam.angle-halfFov+cam.fov*(s/segments);
+      const ex=cs.x+Math.cos(a)*range;
+      const ey=cs.y+Math.sin(a)*rangeY;
+      ctx.lineTo(ex,ey);
+    }
+    ctx.closePath(); ctx.fill();
+
+    // Cone edge
+    ctx.strokeStyle=isSel?COL.coneEdge:'rgba(51,255,102,0.06)';
+    ctx.lineWidth=1;
+    ctx.stroke();
+  }
+}
+
+function drawSpotlight(){
+  const s=toScreen(spotlightPos.x*TILE,spotlightPos.y*TILE);
+  const r=spotlightRadius*TILE*ISO_SCALE;
+  const rY=spotlightRadius*TILE*ISO_SCALE*ISO_SQUASH;
+  const alpha=spotlightTimer/spotlightDuration;
+
+  ctx.save();
+  ctx.globalAlpha=alpha;
+  const grad=ctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r);
+  grad.addColorStop(0,'rgba(255,220,100,0.25)');
+  grad.addColorStop(1,'rgba(255,220,100,0)');
+  ctx.fillStyle=grad;
+  ctx.beginPath(); ctx.ellipse(s.x,s.y,r,rY,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle=COL.spotEdge; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.ellipse(s.x,s.y,r,rY,0,0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawDronePing(){
+  const room=rooms.find(r=>r.id===dronePingRoom);
+  if(!room) return;
+  const s=toScreen(room.x*TILE,room.y*TILE);
+  const sw=room.w*TILE*ISO_SCALE;
+  const sh=room.h*TILE*ISO_SCALE*ISO_SQUASH;
+  const alpha=dronePingTimer/dronePingDuration;
+
+  ctx.save(); ctx.globalAlpha=alpha*0.7;
+  ctx.fillStyle=COL.dronePing;
+  ctx.fillRect(s.x,s.y,sw,sh);
+  ctx.strokeStyle='rgba(100,200,255,0.3)';
+  ctx.lineWidth=2; ctx.setLineDash([4,4]);
+  ctx.strokeRect(s.x,s.y,sw,sh);
+  ctx.setLineDash([]);
+  // Scan line
+  const scanY=s.y+(frameCount%60)/60*sh;
+  ctx.fillStyle='rgba(100,200,255,0.15)';
+  ctx.fillRect(s.x,scanY,sw,2);
+  ctx.restore();
+}
+
+function drawThieves(){
+  for(const t of thieves){
+    if(t.reachedVault) continue;
+    if(!t.visible) continue;
+
+    const s=toScreen(t.x*TILE,t.y*TILE);
+    const sz=TILE*ISO_SCALE*0.7;
+    const szY=sz*ISO_SQUASH;
+
+    // Spotted flash
+    if(t.spottedTimer>0){
+      ctx.save(); ctx.globalAlpha=t.spottedTimer*2;
+      ctx.fillStyle=t.color+'44';
+      ctx.beginPath();ctx.arc(s.x,s.y,sz*1.5,0,Math.PI*2);ctx.fill();
+      ctx.restore();
+    }
+
+    // Body
+    ctx.fillStyle=t.color;
+    ctx.fillRect(s.x-sz/2,s.y-szY/2,sz,szY);
+
+    // Symbol
+    ctx.fillStyle='#000'; ctx.font='bold 9px monospace'; ctx.textAlign='center';
+    ctx.fillText(t.symbol,s.x,s.y+3);
+
+    // Stunned
+    if(t.stunTimer>0){
+      ctx.fillStyle='#ffff00'; ctx.font='8px monospace';
+      ctx.fillText('STUNNED',s.x,s.y-szY/2-4);
+    }
+    // Picking
+    if(t.pickingDoor){
+      ctx.fillStyle='#ffaa00'; ctx.font='8px monospace';
+      ctx.fillText('picking...',s.x,s.y-szY/2-4);
+    }
+  }
+}
+
+function drawCameras(){
+  for(let i=0;i<cameras.length;i++){
+    const cam=cameras[i];
+    const s=toScreen(cam.x*TILE,cam.y*TILE);
+    const isSel=(i===selectedCamIdx);
+
+    // Camera icon
+    ctx.save();
+    if(isSel){ctx.shadowColor=COL.green;ctx.shadowBlur=10;}
+    ctx.fillStyle=isSel?COL.cam:COL.camDim;
+    ctx.beginPath();ctx.arc(s.x,s.y,6,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#000'; ctx.font='bold 7px monospace'; ctx.textAlign='center';
+    ctx.fillText(String(i+1),s.x,s.y+2.5);
+    ctx.restore();
+
+    // Direction indicator
+    const dx=Math.cos(cam.angle)*12, dy=Math.sin(cam.angle)*12*ISO_SQUASH;
+    ctx.strokeStyle=isSel?COL.cam:COL.camDim;
+    ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x+dx,s.y+dy);ctx.stroke();
+  }
+}
+
+function drawHUD(){
+  // Top bar
+  ctx.fillStyle=COL.hudBg; ctx.fillRect(0,0,W,50);
+  ctx.strokeStyle=COL.panelBorder; ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,50);ctx.lineTo(W,50);ctx.stroke();
+
+  ctx.font='bold 12px "Courier New"'; ctx.textAlign='left';
+  ctx.fillStyle=COL.green;
+  ctx.fillText('SHIFT '+(shiftNum+1)+'/'+maxShifts,12,18);
+
+  // Timer bar
+  const pct=Math.min(1,gameTime/shiftDuration);
+  const barX=12, barY=26, barW=120, barH=8;
+  ctx.fillStyle='#0d1a0d'; ctx.fillRect(barX,barY,barW,barH);
+  ctx.fillStyle=pct>0.8?COL.red:pct>0.5?COL.amber:COL.green;
+  ctx.fillRect(barX,barY,barW*pct,barH);
+  ctx.fillStyle=COL.textDim; ctx.font='9px "Courier New"';
+  ctx.fillText(Math.floor(shiftDuration-gameTime)+'s remaining',barX+barW+8,barY+7);
+
+  // Thieves count
+  const activeThieves=thieves.filter(t=>!t.reachedVault).length;
+  ctx.textAlign='center';
+  ctx.fillStyle=activeThieves>0?COL.red:COL.green;
+  ctx.font='bold 12px "Courier New"';
+  ctx.fillText('THREATS: '+activeThieves,W/2,18);
+
+  // Status
+  const hasVisibleThief=thieves.some(t=>t.visible&&!t.reachedVault);
+  ctx.font='10px "Courier New"';
+  if(hasVisibleThief){
+    ctx.fillStyle=COL.red;
+    ctx.fillText('STATUS: CONTACT',W/2,34);
+  } else if(activeThieves>0){
+    ctx.fillStyle=COL.amber;
+    ctx.fillText('STATUS: ALERT',W/2,34);
+  } else {
+    ctx.fillStyle=COL.greenDim;
+    ctx.fillText('STATUS: SECURE',W/2,34);
+  }
+
+  // Abilities bar
+  const abX=W-340, abY=6;
+  drawAbilityBtn(abX,abY,80,36,'LOCK [1]',lockDoorCooldown,lockDoorMaxCD,actionMode==='lock');
+  drawAbilityBtn(abX+90,abY,90,36,'SPOT [2]',spotlightCooldown,spotlightMaxCD,actionMode==='spotlight');
+  drawAbilityBtn(abX+190,abY,90,36,'DRONE [3]',dronePingCooldown,dronePingMaxCD,actionMode==='drone');
+
+  // Ability clicks
+  if(mouseClicked===false){ // just for hover
+    // handled in keydown
+  }
+
+  // Event log (bottom right)
+  const logX=W-260, logY=H-140, logW=250, logH=130;
+  ctx.fillStyle='rgba(8,12,8,0.8)'; ctx.fillRect(logX,logY,logW,logH);
+  ctx.strokeStyle=COL.panelBorder; ctx.strokeRect(logX,logY,logW,logH);
+  ctx.fillStyle=COL.textDim; ctx.font='9px "Courier New"'; ctx.textAlign='left';
+  ctx.fillText('EVENT LOG',logX+5,logY+10);
+  const visibleLogs=logEntries.slice(-8);
+  for(let i=0;i<visibleLogs.length;i++){
+    const entry=visibleLogs[i];
+    ctx.fillStyle=COL[entry.color]||COL.textDim;
+    ctx.fillText(entry.msg.substring(0,35),logX+5,logY+24+i*13);
+  }
+
+  // Selected camera info
+  if(selectedCamIdx>=0){
+    ctx.fillStyle=COL.green; ctx.font='10px "Courier New"'; ctx.textAlign='left';
+    ctx.fillText('CAM '+(selectedCamIdx+1)+' selected — click map to aim',12,H-10);
+  }
+}
+
+function drawAbilityBtn(x,y,w,h,label,cd,maxCd,active){
+  const ready=cd<=0;
+  ctx.fillStyle=active?COL.greenDark:ready?'#0d160d':'#0a0e0a';
+  ctx.fillRect(x,y,w,h);
+  ctx.strokeStyle=active?COL.green:ready?COL.panelBorder:'#0d1a0d';
+  ctx.lineWidth=active?2:1;
+  ctx.strokeRect(x,y,w,h);
+
+  ctx.fillStyle=active?COL.green:ready?COL.greenDim:'#1a2a1a';
+  ctx.font='bold 10px "Courier New"'; ctx.textAlign='center';
+  ctx.fillText(label,x+w/2,y+14);
+
+  if(!ready){
+    const pct=cd/maxCd;
+    ctx.fillStyle='rgba(51,255,102,0.15)';
+    ctx.fillRect(x+2,y+h-8,Math.max(0,(w-4)*(1-pct)),5);
+    ctx.fillStyle=COL.textDim; ctx.font='8px "Courier New"';
+    ctx.fillText(cd.toFixed(1)+'s',x+w/2,y+h-2);
+  } else {
+    ctx.fillStyle=COL.green; ctx.font='8px "Courier New"';
+    ctx.fillText('READY',x+w/2,y+h-2);
+  }
+}
+
+function drawActionCursor(){
+  if(!actionMode||state!==STATE.PLAYING) return;
+  const world=toWorld(mouseX,mouseY);
+  const wx=world.x/TILE, wy=world.y/TILE;
+
+  if(actionMode==='lock'){
+    // Highlight nearby doors
+    for(const door of doors){
+      if(!door.locked){
+        const ds=toScreen(door.x*TILE,door.y*TILE);
+        const sw=TILE*ISO_SCALE, sh=TILE*ISO_SCALE*ISO_SQUASH;
+        ctx.strokeStyle=COL.amber; ctx.lineWidth=2;
+        ctx.strokeRect(ds.x,ds.y,sw,sh);
+      }
+    }
+    ctx.fillStyle=COL.amber; ctx.font='10px monospace'; ctx.textAlign='center';
+    ctx.fillText('CLICK A DOOR TO LOCK',W/2,H-10);
+  } else if(actionMode==='spotlight'){
+    const s=toScreen(wx*TILE,wy*TILE);
+    ctx.strokeStyle=COL.spotEdge; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    const r=spotlightRadius*TILE*ISO_SCALE, rY=spotlightRadius*TILE*ISO_SCALE*ISO_SQUASH;
+    ctx.beginPath();ctx.ellipse(s.x,s.y,r,rY,0,0,Math.PI*2);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#ffdd6644'; ctx.font='10px monospace'; ctx.textAlign='center';
+    ctx.fillText('CLICK TO DEPLOY SPOTLIGHT',W/2,H-10);
+  } else if(actionMode==='drone'){
+    const room=getRoomAt(Math.floor(wx),Math.floor(wy));
+    if(room){
+      const rs=toScreen(room.x*TILE,room.y*TILE);
+      const rw=room.w*TILE*ISO_SCALE, rh=room.h*TILE*ISO_SCALE*ISO_SQUASH;
+      ctx.strokeStyle='rgba(100,200,255,0.5)'; ctx.lineWidth=2; ctx.setLineDash([4,4]);
+      ctx.strokeRect(rs.x,rs.y,rw,rh);
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle='#66ccff'; ctx.font='10px monospace'; ctx.textAlign='center';
+    ctx.fillText('CLICK A ROOM TO SCAN',W/2,H-10);
+  }
+}
+
+// ---- UPGRADE ----
+function drawUpgrade(){
+  ctx.fillStyle='#060a06'; ctx.fillRect(0,0,W,H);
+
+  ctx.save(); ctx.shadowColor=COL.green; ctx.shadowBlur=20;
+  ctx.fillStyle=COL.green; ctx.font='bold 22px "Courier New"'; ctx.textAlign='center';
+  ctx.fillText('// SHIFT COMPLETE — SYSTEM UPGRADE',W/2,70);
+  ctx.restore();
+
+  ctx.fillStyle=COL.textDim; ctx.font='12px "Courier New"';
+  ctx.fillText('Select one upgrade:',W/2,100);
+
+  upgradeHover=-1;
+  for(let i=0;i<upgradeChoices.length;i++){
+    const u=upgradeChoices[i];
+    const cx=W/2-300+i*210, cy=130, cw=190, ch=240;
+    const hover=mouseX>=cx&&mouseX<=cx+cw&&mouseY>=cy&&mouseY<=cy+ch;
+    if(hover) upgradeHover=i;
+
+    if(hover){
+      ctx.save(); ctx.shadowColor=COL.green; ctx.shadowBlur=12;
+      ctx.fillStyle='rgba(51,255,102,0.08)'; ctx.fillRect(cx,cy,cw,ch);
+      ctx.restore();
+    } else {
+      ctx.fillStyle='rgba(255,255,255,0.02)'; ctx.fillRect(cx,cy,cw,ch);
+    }
+    ctx.strokeStyle=hover?COL.green:COL.panelBorder;
+    ctx.lineWidth=hover?2:1; ctx.strokeRect(cx,cy,cw,ch);
+
+    ctx.fillStyle=COL.textDim; ctx.font='10px "Courier New"'; ctx.textAlign='center';
+    ctx.fillText(u.cat,cx+cw/2,cy+25);
+
+    ctx.fillStyle=COL.green; ctx.font='bold 18px "Courier New"';
+    ctx.fillText(u.icon,cx+cw/2,cy+65);
+
+    ctx.fillStyle=COL.green; ctx.font='bold 13px "Courier New"';
+    ctx.fillText(u.name,cx+cw/2,cy+100);
+
+    ctx.fillStyle=COL.textDim; ctx.font='11px "Courier New"';
+    wrapText(ctx,u.desc,cx+10,cy+125,cw-20,15);
+
+    ctx.fillStyle=COL.amber; ctx.font='bold 12px "Courier New"';
+    ctx.fillText('[ '+(i+1)+' ]',cx+cw/2,cy+ch-15);
+  }
+}
+
+// ---- GAME OVER ----
+function drawGameOver(){
+  ctx.fillStyle='#060a06'; ctx.fillRect(0,0,W,H);
+
+  const survived=shiftNum>=maxShifts;
+  const ending=getEnding(survived);
+
+  ctx.save();
+  ctx.shadowColor=survived?COL.green:'#ff3333'; ctx.shadowBlur=25;
+  ctx.fillStyle=survived?COL.green:'#ff3333';
+  ctx.font='bold 30px "Courier New"'; ctx.textAlign='center';
+  ctx.fillText('// '+ending.title,W/2,120);
+  ctx.restore();
+
+  ctx.fillStyle=COL.textDim; ctx.font='12px "Courier New"';
+  wrapText(ctx,ending.text,150,170,W-300,20);
+
+  ctx.fillStyle=COL.textDim; ctx.font='11px "Courier New"'; ctx.textAlign='center';
+  ctx.fillText('Shifts survived: '+(survived?maxShifts:shiftNum+1),W/2,420);
+  ctx.fillText('Doors locked: '+totalDoorsLocked+' | Upgrades: '+ownedUpgrades.size,W/2,440);
+
+  const blink=Math.sin(Date.now()*0.005)>0;
+  if(blink){
+    ctx.save(); ctx.shadowColor=COL.green; ctx.shadowBlur=10;
+    ctx.fillStyle=COL.green; ctx.font='bold 14px "Courier New"';
+    ctx.fillText('[ CLICK or SPACE TO RESTART ]',W/2,500);
+    ctx.restore();
+  }
+}
+
+// ============================================================
+//  GAME LOOP
+// ============================================================
+function gameLoop(ts){
+  update(ts);
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+
+</script>
 </body>
 </html>
