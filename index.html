@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CamCtrl</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="screen">
+    <div id="crt-overlay"></div>
+
+    <!-- TITLE SCREEN -->
+    <div id="title-screen" class="screen-layer active">
+      <div class="title-logo">
+        <pre>
+ ██████╗ █████╗ ███╗   ███╗ ██████╗████████╗██████╗ ██╗
+██╔════╝██╔══██╗████╗ ████║██╔════╝╚══██╔══╝██╔══██╗██║
+██║     ███████║██╔████╔██║██║        ██║   ██████╔╝██║
+██║     ██╔══██║██║╚██╔╝██║██║        ██║   ██╔══██╗██║
+╚██████╗██║  ██║██║ ╚═╝ ██║╚██████╗   ██║   ██║  ██║███████╗
+ ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝
+        </pre>
+        <p class="subtitle">SECURITY MONITORING SYSTEM v2.7</p>
+      </div>
+      <div class="menu-options">
+        <button id="btn-new-game" class="menu-btn">NEW SHIFT</button>
+        <button id="btn-how-to" class="menu-btn">HOW TO PLAY</button>
+      </div>
+    </div>
+
+    <!-- HOW TO PLAY -->
+    <div id="howto-screen" class="screen-layer">
+      <div class="howto-content">
+        <h2>// OPERATOR MANUAL</h2>
+        <div class="howto-text">
+          <p><strong>MISSION:</strong> Protect the jewel in the vault. Thieves will infiltrate the building each shift. Don't let them reach it.</p>
+          <p><strong>CAMERAS:</strong> Click a camera feed to select it. Click a room on the map to reposition that camera. You can only see rooms your cameras cover.</p>
+          <p><strong>ACTIONS</strong> (cost Action Points):</p>
+          <ul>
+            <li><strong>LOCK DOOR</strong> (1 AP) - Click a door on the map to lock it. Thieves must pick locked doors (takes them several turns).</li>
+            <li><strong>ALARM</strong> (2 AP) - Trigger alarm in a visible room. Slows all thieves in that room. 5-turn cooldown.</li>
+            <li><strong>PAUSE</strong> (Space) - Pause the ticker to plan your moves.</li>
+          </ul>
+          <p><strong>UPGRADES:</strong> After each shift, pick an upgrade card to improve your security system.</p>
+          <p><strong>SURVIVE 5 SHIFTS</strong> to complete the run.</p>
+        </div>
+        <button id="btn-back-title" class="menu-btn">BACK</button>
+      </div>
+    </div>
+
+    <!-- GAME SCREEN -->
+    <div id="game-screen" class="screen-layer">
+      <div id="game-layout">
+        <div id="camera-panel">
+          <div class="camera-feed" id="cam-0">
+            <div class="cam-label">CAM 01</div>
+            <canvas class="cam-canvas" width="240" height="180"></canvas>
+            <div class="cam-static"></div>
+          </div>
+          <div class="camera-feed" id="cam-1">
+            <div class="cam-label">CAM 02</div>
+            <canvas class="cam-canvas" width="240" height="180"></canvas>
+            <div class="cam-static"></div>
+          </div>
+          <div class="camera-feed" id="cam-2">
+            <div class="cam-label">CAM 03</div>
+            <canvas class="cam-canvas" width="240" height="180"></canvas>
+            <div class="cam-static"></div>
+          </div>
+          <div class="camera-feed" id="cam-3">
+            <div class="cam-label">CAM 04</div>
+            <canvas class="cam-canvas" width="240" height="180"></canvas>
+            <div class="cam-static"></div>
+          </div>
+        </div>
+        <div id="map-panel">
+          <div class="panel-header">FLOOR PLAN</div>
+          <canvas id="map-canvas" width="480" height="400"></canvas>
+        </div>
+        <div id="hud-panel">
+          <div class="hud-section">
+            <div class="hud-label">SHIFT</div>
+            <div class="hud-value" id="hud-shift">1 / 5</div>
+          </div>
+          <div class="hud-section">
+            <div class="hud-label">TURN</div>
+            <div class="hud-value" id="hud-turn">0</div>
+          </div>
+          <div class="hud-section">
+            <div class="hud-label">ACTION PTS</div>
+            <div class="hud-value" id="hud-ap">3 / 3</div>
+          </div>
+          <div class="hud-section">
+            <div class="hud-label">ALARM CD</div>
+            <div class="hud-value" id="hud-alarm">READY</div>
+          </div>
+          <div class="hud-section">
+            <div class="hud-label">THIEVES</div>
+            <div class="hud-value" id="hud-thieves">0</div>
+          </div>
+          <div class="hud-section">
+            <div class="hud-label">STATUS</div>
+            <div class="hud-value" id="hud-status">SECURE</div>
+          </div>
+          <div class="hud-actions">
+            <button id="btn-lock" class="action-btn" title="Lock Door (1 AP)">LOCK DOOR</button>
+            <button id="btn-alarm" class="action-btn" title="Alarm (2 AP)">ALARM</button>
+            <button id="btn-pause" class="action-btn">PAUSE</button>
+          </div>
+          <div id="event-log">
+            <div class="panel-header">EVENT LOG</div>
+            <div id="log-entries"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- UPGRADE SCREEN -->
+    <div id="upgrade-screen" class="screen-layer">
+      <h2 class="upgrade-title">// SHIFT COMPLETE - SYSTEM UPGRADE AVAILABLE</h2>
+      <p class="upgrade-subtitle">Select one upgrade for your security system:</p>
+      <div id="upgrade-cards"></div>
+    </div>
+
+    <!-- NARRATIVE SCREEN -->
+    <div id="narrative-screen" class="screen-layer">
+      <div id="narrative-container">
+        <div class="narrative-header">INCOMING MESSAGE</div>
+        <div id="narrative-sender"></div>
+        <div id="narrative-text"></div>
+        <div id="narrative-choices"></div>
+      </div>
+    </div>
+
+    <!-- GAME OVER SCREEN -->
+    <div id="gameover-screen" class="screen-layer">
+      <div id="gameover-content">
+        <h2 id="gameover-title"></h2>
+        <p id="gameover-text"></p>
+        <div id="gameover-stats"></div>
+        <button id="btn-restart" class="menu-btn">NEW SHIFT</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/map.js"></script>
+  <script src="js/entities.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/upgrades.js"></script>
+  <script src="js/narrative.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
