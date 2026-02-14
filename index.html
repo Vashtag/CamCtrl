@@ -331,11 +331,11 @@ function isVisible(px,py){
 // ============================================================
 let thieves=[];
 const THIEF_TYPES={
-  basic:{name:'Intruder',speed:1.8,pickSpeed:1,color:'#ff4444',symbol:'T',stealth:0},
-  fast:{name:'Runner',speed:3.2,pickSpeed:0.8,color:'#ff8800',symbol:'R',stealth:0},
-  lockpick:{name:'Locksmith',speed:1.5,pickSpeed:3,color:'#ffaa44',symbol:'L',stealth:0},
-  ghost:{name:'Ghost',speed:2.0,pickSpeed:1,color:'#8844ff',symbol:'G',stealth:0.4},
-  heavy:{name:'Brute',speed:1.2,pickSpeed:1.5,color:'#ff2222',symbol:'B',stealth:0},
+  basic:{name:'Intruder',speed:1.55,pickSpeed:1,color:'#ff4444',symbol:'T',stealth:0},
+  fast:{name:'Runner',speed:2.6,pickSpeed:0.8,color:'#ff8800',symbol:'R',stealth:0},
+  lockpick:{name:'Locksmith',speed:1.35,pickSpeed:2.6,color:'#ffaa44',symbol:'L',stealth:0},
+  ghost:{name:'Ghost',speed:1.75,pickSpeed:1,color:'#8844ff',symbol:'G',stealth:0.35},
+  heavy:{name:'Brute',speed:1.0,pickSpeed:1.3,color:'#ff2222',symbol:'B',stealth:0},
 };
 
 function spawnThief(type,entry){
@@ -347,6 +347,10 @@ function spawnThief(type,entry){
     stunTimer:0,
     pickingDoor:null,
     reachedVault:false,
+    neutralized:false,
+    escaped:false,
+    resolved:false,
+    exposure:0,
     visible:false,
     spottedTimer:0,
   });
@@ -389,7 +393,7 @@ function findVaultPos(){
 }
 
 function updateThief(thief,dt){
-  if(thief.reachedVault) return;
+  if(thief.reachedVault||thief.neutralized||thief.escaped) return;
 
   // Stunned
   if(thief.stunTimer>0){thief.stunTimer-=dt;return;}
@@ -447,6 +451,7 @@ function updateThief(thief,dt){
     // Check vault
     if(grid[Math.floor(thief.y)][Math.floor(thief.x)]===3){
       thief.reachedVault=true;
+      thief.escaped=true;
     }
   } else {
     thief.x+=dx/dist*moveSpeed;
@@ -587,10 +592,10 @@ function getEnding(survived){
 function getWave(shift,waveNum){
   const waves={
     0:[['basic','basic'],['basic','fast']],
-    1:[['basic','basic','lockpick'],['fast','fast','basic']],
-    2:[['basic','lockpick','fast'],['ghost','basic','basic'],['fast','fast','lockpick']],
-    3:[['lockpick','ghost','fast'],['heavy','basic','basic','fast']],
-    4:[['heavy','lockpick','ghost','fast'],['fast','fast','ghost','lockpick'],['heavy','heavy','lockpick']],
+    1:[['basic','basic','lockpick'],['fast','basic','basic']],
+    2:[['basic','lockpick','fast'],['ghost','basic','basic'],['fast','basic','lockpick']],
+    3:[['lockpick','ghost','fast'],['heavy','basic','fast']],
+    4:[['heavy','lockpick','ghost','fast'],['fast','ghost','lockpick'],['heavy','lockpick','basic']],
   };
   const sw=waves[Math.min(shift,4)]||waves[4];
   return sw[waveNum%sw.length];
@@ -611,6 +616,7 @@ function addLog(msg,color){
 const STATE={TITLE:0,NARRATIVE:1,PLAYING:2,UPGRADE:3,GAMEOVER:4};
 let state=STATE.TITLE;
 let shiftNum=0, maxShifts=5;
+let vaultIntegrity=0, maxVaultIntegrity=3;
 let gameTime=0; // seconds elapsed in shift
 let waveIndex=0, waveTimers=[];
 let shiftDuration=60; // seconds per shift
@@ -691,6 +697,8 @@ function startShift(){
   if(hasUpgrade('double_ping')) dronePingDuration=4;
 
   thieves=[];
+  maxVaultIntegrity=3;
+  vaultIntegrity=maxVaultIntegrity;
   gameTime=0; waveIndex=0;
   shiftComplete=false;
   lockDoorCooldown=0; spotlightCooldown=0; dronePingCooldown=0;
@@ -699,10 +707,10 @@ function startShift(){
   logEntries=[];
 
   // Wave timing
+  shiftDuration=55+shiftNum*9;
   waveTimers=[3]; // first wave at 3s
   const numWaves=2+Math.min(shiftNum,3);
   for(let i=1;i<numWaves;i++) waveTimers.push(3+i*(shiftDuration/(numWaves+1)));
-  shiftDuration=50+shiftNum*8;
 
   addLog('Shift '+(shiftNum+1)+' started. '+entries.length+' entry points.','green');
   state=STATE.PLAYING;
@@ -773,6 +781,22 @@ function update(timestamp){
     for(const t of thieves) updateThief(t,dt);
     updateThiefVisibility();
 
+    // Exposure gameplay: keep thieves in view to neutralize them
+    for(const t of thieves){
+      if(t.reachedVault||t.neutralized||t.escaped) continue;
+      if(t.visible){
+        const exposureGain=hasUpgrade('motion_detection')?1.45:1;
+        t.exposure=Math.min(2.5,t.exposure+dt*exposureGain);
+        if(t.exposure>=2.5){
+          t.neutralized=true;
+          t.reachedVault=true;
+          addLog(t.name+' neutralized by tracking.','green');
+        }
+      } else {
+        t.exposure=Math.max(0,t.exposure-dt*0.9);
+      }
+    }
+
     // Auto-lock
     if(hasUpgrade('auto_lock')){
       for(const door of doors){
@@ -795,10 +819,16 @@ function update(timestamp){
       }
     }
 
-    // Check vault breach
-    if(thieves.some(t=>t.reachedVault)){
-      addLog('VAULT BREACHED!','red');
-      shakeTimer=0.5; shakeIntensity=8;
+    // Check vault breaches (integrity system)
+    for(const t of thieves){
+      if(!t.escaped||t.resolved) continue;
+      t.resolved=true;
+      vaultIntegrity=Math.max(0,vaultIntegrity-1);
+      addLog('VAULT HIT! Integrity '+vaultIntegrity+'/'+maxVaultIntegrity,'red');
+      shakeTimer=0.45; shakeIntensity=7;
+    }
+    if(vaultIntegrity<=0){
+      addLog('VAULT DEFENSE COLLAPSED!','red');
       endShift(false);
     }
 
@@ -1248,7 +1278,8 @@ function drawDronePing(){
 
 function drawThieves(){
   for(const t of thieves){
-    if(t.reachedVault) continue;
+    if(t.reachedVault&&(!t.escaped||t.resolved)) continue;
+    if(t.neutralized||t.escaped) continue;
     if(!t.visible) continue;
 
     const s=toScreen(t.x*TILE,t.y*TILE);
@@ -1270,6 +1301,13 @@ function drawThieves(){
     // Symbol
     ctx.fillStyle='#000'; ctx.font='bold 9px monospace'; ctx.textAlign='center';
     ctx.fillText(t.symbol,s.x,s.y+3);
+
+    // Exposure bar
+    const expPct=Math.max(0,Math.min(1,t.exposure/2.5));
+    ctx.fillStyle='rgba(0,0,0,0.6)';
+    ctx.fillRect(s.x-10,s.y-szY/2-8,20,3);
+    ctx.fillStyle='#66ccff';
+    ctx.fillRect(s.x-10,s.y-szY/2-8,20*expPct,3);
 
     // Stunned
     if(t.stunTimer>0){
@@ -1327,11 +1365,20 @@ function drawHUD(){
   ctx.fillText(Math.floor(shiftDuration-gameTime)+'s remaining',barX+barW+8,barY+7);
 
   // Thieves count
-  const activeThieves=thieves.filter(t=>!t.reachedVault).length;
+  const activeThieves=thieves.filter(t=>!t.reachedVault&&!t.neutralized&&!t.escaped).length;
   ctx.textAlign='center';
   ctx.fillStyle=activeThieves>0?COL.red:COL.green;
   ctx.font='bold 12px "Courier New"';
   ctx.fillText('THREATS: '+activeThieves,W/2,18);
+
+  // Vault integrity
+  ctx.textAlign='right';
+  ctx.fillStyle=vaultIntegrity<=1?COL.red:vaultIntegrity===2?COL.amber:COL.green;
+  ctx.font='bold 12px "Courier New"';
+  ctx.fillText('VAULT '+vaultIntegrity+'/'+maxVaultIntegrity,W-12,18);
+  ctx.font='9px "Courier New"';
+  ctx.fillStyle=COL.textDim;
+  ctx.fillText('Track targets to neutralize',W-12,33);
 
   // Status
   const hasVisibleThief=thieves.some(t=>t.visible&&!t.reachedVault);
