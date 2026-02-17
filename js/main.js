@@ -5,13 +5,12 @@ const Game = {
     // States
     STATE: {
         TITLE: 'title',
-        MAP: 'map',           // Overworld sailing map
-        SAILING: 'sailing',    // Sailing animation to next node
-        ISLAND: 'island',      // Top-down island combat
-        ISLAND_CLEAR: 'island_clear', // Island cleared overlay
-        TAVERN: 'tavern',      // Tavern shop
-        NAVAL: 'naval',        // Ship-to-ship combat
-        BOSS: 'boss',          // Boss island
+        PORT: 'port',             // Port shop / contracts / meta
+        SAILING: 'sailing',       // Free-roam open sea
+        ISLAND: 'island',         // Top-down island combat
+        BOSS: 'boss',             // Boss island
+        ISLAND_CLEAR: 'island_clear',
+        UPGRADE_PICK: 'upgrade_pick',
         DEATH: 'death',
         VICTORY: 'victory',
     },
@@ -20,8 +19,8 @@ const Game = {
     frame: 0,
     lastTime: 0,
     act: 0,
-    pendingNode: null,
     islandClearTimer: 0,
+    currentPoi: null,
 
     // Chests on current island
     chests: [],
@@ -58,8 +57,8 @@ const Game = {
                 }
                 break;
 
-            case this.STATE.MAP:
-                this._updateMap(dt);
+            case this.STATE.PORT:
+                this._updatePort();
                 break;
 
             case this.STATE.SAILING:
@@ -74,16 +73,14 @@ const Game = {
             case this.STATE.ISLAND_CLEAR:
                 this.islandClearTimer -= dt;
                 if (this.islandClearTimer <= 0 || Input.mouse.leftClick) {
-                    this.state = this.STATE.MAP;
+                    // Go to upgrade picker
+                    UI.initUpgradePicker();
+                    this.state = this.STATE.UPGRADE_PICK;
                 }
                 break;
 
-            case this.STATE.TAVERN:
-                this._updateTavern();
-                break;
-
-            case this.STATE.NAVAL:
-                this._updateNaval(dt);
+            case this.STATE.UPGRADE_PICK:
+                this._updateUpgradePick();
                 break;
 
             case this.STATE.DEATH:
@@ -109,7 +106,10 @@ const Game = {
                 UI.drawTitle(ctx, this.frame);
                 break;
 
-            case this.STATE.MAP:
+            case this.STATE.PORT:
+                UI.drawPort(ctx, this.frame);
+                break;
+
             case this.STATE.SAILING:
                 GameMap.draw(ctx, this.frame);
                 break;
@@ -124,12 +124,8 @@ const Game = {
                 UI.drawIslandComplete(ctx, this.frame);
                 break;
 
-            case this.STATE.TAVERN:
-                UI.drawTavern(ctx, this.frame);
-                break;
-
-            case this.STATE.NAVAL:
-                Naval.draw(ctx, this.frame);
+            case this.STATE.UPGRADE_PICK:
+                UI.drawUpgradePicker(ctx, this.frame);
                 break;
 
             case this.STATE.DEATH:
@@ -145,45 +141,43 @@ const Game = {
     // ---- START RUN ----
     startRun() {
         this.act = 0;
+        Ship.init();
+        Ship.applyMeta();
         Player.init(0, 0);
-        GameMap.generate(this.act);
-        this.state = this.STATE.MAP;
+        GameMap.generate();
+        UI.initPort();
+        this.state = this.STATE.PORT;
     },
 
-    // ---- MAP ----
-    _updateMap(dt) {
-        const result = GameMap.update(dt);
-        if (result && result.selectedNode !== undefined) {
-            this.pendingNode = GameMap.selectNode(result.selectedNode);
-            if (this.pendingNode) {
+    // ---- PORT ----
+    _updatePort() {
+        if (Input.mouse.leftClick) {
+            const result = UI.handlePortClick();
+            if (result === 'leave') {
                 this.state = this.STATE.SAILING;
             }
         }
     },
 
-    // ---- SAILING ----
+    // ---- SAILING (free-roam sea) ----
     _updateSailing(dt) {
-        const arrived = GameMap.update(dt);
-        if (arrived && arrived.type) {
-            // Arrived at node
-            const node = arrived;
-            switch (node.type) {
-                case 'island':
-                    this._enterIsland(node.difficulty, false);
+        Renderer.updateCamera(Ship.x, Ship.y, dt);
+        const result = GameMap.update(dt);
+
+        if (result) {
+            switch (result.event) {
+                case 'dock':
+                    UI.initPort();
+                    this.state = this.STATE.PORT;
                     break;
-                case 'boss':
-                    this._enterIsland(node.difficulty, true);
+                case 'land':
+                    this.currentPoi = result.poi;
+                    this._enterIsland(result.poi.difficulty, result.poi.type === 'boss');
                     break;
-                case 'tavern':
-                    UI.initTavern();
-                    this.state = this.STATE.TAVERN;
+                case 'sunk':
+                    Ship.onDeath();
+                    this.state = this.STATE.DEATH;
                     break;
-                case 'sea_battle':
-                    Naval.start(node.difficulty);
-                    this.state = this.STATE.NAVAL;
-                    break;
-                default:
-                    this.state = this.STATE.MAP;
             }
         }
     },
@@ -193,6 +187,7 @@ const Game = {
         Island.generate(difficulty);
         Player.x = Island.spawnX;
         Player.y = Island.spawnY;
+        Player.hp = Player.maxHp; // Full HP for island combat
         Enemies.spawnForIsland(difficulty, isBoss);
         Loot.reset();
 
@@ -253,17 +248,22 @@ const Game = {
 
         // Check death
         if (!Player.isAlive()) {
+            Ship.onDeath();
             this.state = this.STATE.DEATH;
             return;
         }
 
-        // Check island clear (all enemies dead for non-boss, boss dead for boss)
+        // Check island clear
         if (this.state === this.STATE.BOSS) {
             if (Enemies.bossDefeated() && Enemies.aliveCount() === 0) {
                 this.state = this.STATE.VICTORY;
             }
         } else {
             if (Enemies.aliveCount() === 0) {
+                Ship.onIslandClear();
+                if (this.currentPoi) {
+                    GameMap.markCleared(this.currentPoi);
+                }
                 this.islandClearTimer = 2;
                 this.state = this.STATE.ISLAND_CLEAR;
             }
@@ -306,33 +306,16 @@ const Game = {
 
         Renderer.endCamera();
 
-        // HUD (screen space — damage numbers already drawn in world space above)
+        // HUD (screen space)
         UI.drawHUD(ctx, this.frame, true);
     },
 
-    // ---- TAVERN ----
-    _updateTavern() {
-        if (Input.mouse.leftClick) {
-            const result = UI.handleTavernClick();
-            if (result === 'leave') {
-                this.state = this.STATE.MAP;
-            }
-        }
-    },
-
-    // ---- NAVAL ----
-    _updateNaval(dt) {
-        const result = Naval.update(dt);
-        if (result) {
-            if (result === 'lose') {
-                this.state = this.STATE.DEATH;
-            } else {
-                // Win or flee — back to map
-                if (result === 'win') {
-                    // Loot already added in Naval
-                }
-                this.state = this.STATE.MAP;
-            }
+    // ---- UPGRADE PICK ----
+    _updateUpgradePick() {
+        const choice = UI.handleUpgradeClick();
+        if (choice >= 0 && choice < UI.upgradeChoices.length) {
+            Ship.pickUpgrade(UI.upgradeChoices[choice]);
+            this.state = this.STATE.SAILING;
         }
     },
 };

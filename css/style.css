@@ -1,7 +1,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
     height: 100%;
-    background: #0a0a1a;
+    background: #d4c090;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
@@ -18,7 +18,7 @@ canvas {
     inset: 0;
     display: grid;
     place-items: center;
-    background: #0a0a1a;
+    background: #d4c090;
 }
 #game {
     cursor: crosshair;
