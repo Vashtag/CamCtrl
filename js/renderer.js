@@ -40,7 +40,7 @@ const Renderer = {
     },
 
     clear() {
-        this.ctx.fillStyle = '#0a0a1a';
+        this.ctx.fillStyle = '#e8d5a3';
         this.ctx.fillRect(0, 0, this.W, this.H);
     },
 
